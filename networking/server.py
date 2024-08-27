@@ -1,7 +1,7 @@
 import socket
 import threading
 import logging
-import networking.settings
+from networking.settings import HEADER, FORMAT, DISCONNECT_MESSAGE
 
 class Server:
     def __init__(self, port):

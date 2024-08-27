@@ -1,6 +1,6 @@
 import socket
 import logging
-import networking.settings
+from networking.settings import HEADER, FORMAT, DISCONNECT_MESSAGE
 
 class Client:
     def __init__(self):
