@@ -1,3 +1,14 @@
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | [%(levelname)s] | %(message)s",
+    handlers=[
+        logging.FileHandler("debug.log"),
+        logging.StreamHandler()
+    ]
+)
+
 __version__ = "0.1.0"
 __author__ = 'James Turner'
 

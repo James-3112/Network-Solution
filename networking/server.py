@@ -1,6 +1,7 @@
 import socket
 import threading
-from networking.settings import *
+import logging
+import networking.settings
 
 class Server:
     def __init__(self, port):
@@ -13,7 +14,7 @@ class Server:
     
     def start(self):
         self.server.listen()
-        print(f"[LISTENING] Server is listening.")
+        logging.info("Server is listening")
         
         while True:
             connection, address = self.server.accept() # Blocking line (Code will wait here)
@@ -24,7 +25,7 @@ class Server:
         self.server.close()
     
     def handle_client(self, connection, address):
-        print(f"[NEW CONNECTION] {address} connected.")
+        logging.info(f"{address} connected")
         
         while True:
             msg_length = connection.recv(HEADER).decode(FORMAT) # Blocking line (Code will wait here)
@@ -38,5 +39,5 @@ class Server:
             
                 print(f"[{address}] {msg}")
         
-        print(f"[END CONNECTION] {address} disconnect.")
+        logging.info(f"{address} disconnect")
         connection.close()
