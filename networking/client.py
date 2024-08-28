@@ -1,4 +1,5 @@
 import socket
+import threading
 import logging
 from time import sleep
 from networking.settings import DISCONNECT_MESSAGE
@@ -9,9 +10,9 @@ class Client:
     
     def __init__(self, header=64, encoding_format="utf-8", time_out=5):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.settimeout(_time_out)
+        self.client.settimeout(time_out)
         
-        self.header = _header
+        self.header = header
         self.encoding_format = encoding_format
 
     def connect(self, ip, port, reconnect_attempts=3, reconnect_delay=5):
@@ -72,11 +73,11 @@ class Client:
     def receive_messages(self):
         while self.connected:
             try:
-                msg_length = self.client.recv(self.header).decode(self.format)  # Blocking line
+                msg_length = self.client.recv(self.header).decode(self.encoding_format)  # Blocking line
                 
                 if msg_length:
                     msg_length = int(msg_length)
-                    msg = self.client.recv(msg_length).decode(self.format)  # Blocking line
+                    msg = self.client.recv(msg_length).decode(self.encoding_format)  # Blocking line
                     
                     if msg == DISCONNECT_MESSAGE:
                         logging.info("Server requested disconnection")

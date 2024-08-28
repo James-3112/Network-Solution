@@ -5,25 +5,32 @@ from networking.settings import HEADER, FORMAT, DISCONNECT_MESSAGE
 
 class Server:
     clients = {}
+    server_thread = None
     
     def __init__(self, port):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind((socket.gethostbyname(socket.gethostname()), port))
     
     def start(self):
+        server_thread = threading.Thread(target=self.start_thread)
+        server_thread.start()
+    
+    def start_thread(self):
         self.running = True
         self.server.listen()
-        logging.info("Server is listening")
+        logging.info("Server started")
         
-        # Make this into a seprate thread to free up the main thread ----------------------------------------------------
         while self.running == True:
-            connection, address = self.server.accept() # Blocking line
-            self.clients[address] = connection
-            
-            logging.info(f"{address} connected")
-            
-            thread = threading.Thread(target=self.handle_client, args=(connection, address))
-            thread.start()
+            try:
+                connection, address = self.server.accept() # Blocking line
+                self.clients[address] = connection
+                
+                logging.info(f"{address} connected")
+                
+                thread = threading.Thread(target=self.handle_client, args=(connection, address))
+                thread.start()
+            except socket.error as e:
+                logging.error(f"Error client connecting: {e}")
     
     def stop(self):
         self.running = False
@@ -31,8 +38,11 @@ class Server:
         
         for address, connection in self.clients.items():
             connection.close()
-        
         self.clients.clear()
+        
+        if self.server_thread is not None:
+            self.server_thread.join()
+        
         logging.info("Server stopped")
     
     def handle_client(self, connection, address):
