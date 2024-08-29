@@ -1,73 +1,129 @@
 import socket
 import threading
 import logging
-from networking.settings import HEADER, FORMAT, DISCONNECT_MESSAGE
 
 class Server:
-    clients = {}
+    is_running = False
     server_thread = None
+    clients = {}
     
-    def __init__(self, port):
+    
+    def __init__(self, port, header_size=64, buffer_size=16, encoding_format="utf-8", max_clients=0):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind((socket.gethostbyname(socket.gethostname()), port))
+        
+        self.header_size = header_size
+        self.buffer_size = buffer_size
+        self.encoding_format = encoding_format
+        self.max_clients = max_clients
     
+    
+    # Starts the server thread
     def start(self):
-        server_thread = threading.Thread(target=self.start_thread)
-        server_thread.start()
+        self.server_thread = threading.Thread(target=self.start_server_thread)
+        self.server_thread.start()
     
-    def start_thread(self):
-        self.running = True
-        self.server.listen()
+    # Starts listening for clients
+    def start_server_thread(self):
+        self.is_running = True
         logging.info("Server started")
         
-        while self.running == True:
+        # Starts the server listening for clients
+        self.server.listen(self.max_clients)
+        
+        # While the server is running accept connections
+        while self.is_running == True:
             try:
-                connection, address = self.server.accept() # Blocking line
-                self.clients[address] = connection
+                # When the server accepts a connection
+                connection, address = self.server.accept()
                 
-                logging.info(f"{address} connected")
-                
-                thread = threading.Thread(target=self.handle_client, args=(connection, address))
+                # Starts a thread for that client
+                thread = threading.Thread(target=self.receive_messages, args=(connection, address))
                 thread.start()
-            except socket.error as e:
+                
+                # Add the client to the dictionary
+                self.clients[address] = {
+                    "connection": connection,
+                    "thread": thread
+                }
+                
+                logging.info(f"{address} connected to server")
+            except Exception as e:
                 logging.error(f"Error client connecting: {e}")
     
-    def stop(self):
-        self.running = False
-        self.server.close()
-        
-        for address, connection in self.clients.items():
-            connection.close()
-        self.clients.clear()
-        
-        if self.server_thread is not None:
-            self.server_thread.join()
-        
-        logging.info("Server stopped")
     
-    def handle_client(self, connection, address):
-        while True:
+    # Stops the server
+    def stop(self):
+        if self.is_running == True:
             try:
-                msg_length = connection.recv(HEADER).decode(FORMAT) # Blocking line
+                self.is_running = False
+                self.server_thread.join()
                 
-                if msg_length:
-                    msg_length = int(msg_length)
-                    msg = connection.recv(msg_length).decode(FORMAT) # Blocking line
+                for client in self.clients:
+                    client["thread"].join()
+                    client["connection"].shutdown(socket.SHUT_RDWR)
+                    client["connection"].close()
+                    
+                self.server.shutdown(socket.SHUT_RDWR)
+                self.server.close()
                 
-                    if msg == DISCONNECT_MESSAGE:
-                        break
-                
-                    logging.info(f"[{address}] {msg}")
-            except socket.error as e:
-                logging.error(f"Error handling client {address}: {e}")
-        
-        logging.info(f"{address} disconnect")
-        self.disconnect_client(address)
-        
+                logging.info("Server stoped")
+            except Exception as e:
+                logging.error(f"Error stoping server: {e}")
+        else:
+            logging.warning("Server is not running")
+    
+    
+    # Disconnecting clients
+    def _disconnect_client(self, client):
+        try:
+            client["thread"].join()
+            client["connection"].shutdown(socket.SHUT_RDWR)
+            client["connection"].close()
+        except Exception as e:
+            logging.error(f"Error disconnecting client: {e}")
+    
     def disconnect_client(self, address):
-        if address in self.clients:
-            self.clients[address].close()
-            self.clients.pop(address)
-            
-            logging.info(f"Disconnected client {address}")
-        else: logging.info(f"Client {address} does not exist")
+        self._disconnect_client(self.clients[address])
+    
+    
+    # Sending messages
+    def send(self, connection, message):
+        if self.is_running == True:
+            try:
+                message = f"{len(message):<{self.header_size}}" + message
+                connection.send(bytes(message, self.encoding_format))
+            except Exception as e:
+                logging.error(f"Error sending message: {e}")
+        else:
+            logging.warning("Server is not running")
+    
+    def send(self, address, message):
+        self.send(self.clients[address]["connection"], message)
+    
+    
+    # Receive messages from clients
+    def receive_messages(self, connection, address):
+        full_message = ""
+        new_message = True
+        
+        # While server is running receive messages
+        while self.is_running == True:
+            try:
+                # Add the received message to the full message
+                message = connection.recv(self.buffer_size)
+                full_message += message.decode(self.encoding_format)
+                
+                # If it is a new message calculate message length
+                if new_message == True:
+                    message_length = int(message[:self.header_size])
+                    new_message = False
+                
+                # If the server has received the full message
+                if len(full_message) - self.header_size == message_length:
+                    logging.info(f"Server received message from {address}: {full_message[self.header_size:]}")
+                    
+                    new_message = True
+                    full_message = ""
+            except Exception as e:
+                logging.error(f"Error receive message: {e}")
