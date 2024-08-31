@@ -1,97 +1,104 @@
 import socket
 import threading
 import logging
-from time import sleep
-from networking.settings import DISCONNECT_MESSAGE
 
 class Client:
-    connected = False
     receiving_thread = None
     
-    def __init__(self, header=64, encoding_format="utf-8", time_out=5):
+    
+    def __init__(self, header_size=10, buffer_size=16, encoding_format="utf-8"):
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.client.settimeout(time_out)
         
-        self.header = header
+        self.header_size = header_size
+        self.buffer_size = buffer_size
         self.encoding_format = encoding_format
 
-    def connect(self, ip, port, reconnect_attempts=3, reconnect_delay=5):
-        attempts = 0
-        while attempts < reconnect_attempts:
-            try:
-                self.client.connect((ip, port))
-                self.connected = True
-                
-                logging.info(f"Connected to {(ip, port)}")
-                
-                # Start receiving thread
-                self.receiving_thread = threading.Thread(target=self.receive_messages)
-                self.receiving_thread.start()
-                
-                return True
-            except socket.error as e:
-                logging.warning(f"Failed to connect: {e}. Retrying in {reconnect_delay} seconds")
-                attempts += 1
-                
-                sleep(reconnect_delay)
-                
-        logging.error("Failed to connect after {reconnect_attempts} attempts")
-        return False
+
+    # Connect client to the server
+    def connect(self, ip, port):
+        try:
+            self.client.connect((ip, port))
+            logging.info(f"Client connected to {(ip, port)}")
+            
+            # Start receiving thread
+            self.receiving_thread = threading.Thread(target=self.receive_messages)
+            self.receiving_thread.start()
+        except Exception as e:
+            logging.error(f"Error connecting to ({ip}, {port}): {e}")
+
     
-    def attempt_reconnect(self):
-        logging.info("Attempting to reconnect...")
-        
-        if not self.connect(self.client.getpeername()[0], self.client.getpeername()[1]):
-            logging.error("Reconnection failed. Closing client")
-            self.disconnect()
-    
+    # Disconnect client from the server
     def disconnect(self):
-        if self.connected:
-            self.send(DISCONNECT_MESSAGE)
-            
-        if self.receiving_thread is not None:
-            self.receiving_thread.join()
-            
-        self.client.close()
-        self.connected = False
-        logging.info("Client disconnect")
-    
-    def send(self, msg):
-        if self.connected:
-            try:
-                message = msg.encode(self.encoding_format)
-                msg_length = len(message)
+        if self.is_connected() == True:
+            try:    
+                self.client.close()
+                self.receiving_thread.join() 
+            except Exception as e:
+                logging.error(f"Error disconnecting client: {e}")
+        else:
+            logging.warning("Client is not connected")
+
+
+    # Send message to server
+    def send(self, message):
+        # If client is connected
+        if self.is_connected() == True:
+            try: # Try to send message
+                message_header = f"{len(message):<{self.header_size}}" + message
+                self.client.send(bytes(message_header, self.encoding_format))
                 
-                send_length = str(msg_length).encode(self.encoding_format)
-                send_length += b" " * (self.header - len(send_length))
-                
-                self.client.send(send_length)
-                self.client.send(message)
-            except socket.error as e:
+                logging.info(f"Client sent message: {message}")
+            except Exception as e:
                 logging.error(f"Error sending message: {e}")
-        
+        else:
+            logging.warning("Client is not connected")
+    
+    
+    # Receiving messages from the server
     def receive_messages(self):
-        while self.connected:
+        full_message = ""
+        new_message = True
+        
+        # While client is connected receive messages
+        while self.is_connected() == True:
             try:
-                msg_length = self.client.recv(self.header).decode(self.encoding_format)  # Blocking line
+                # Add the received message to the full message
+                message = self.client.recv(self.buffer_size)
+                full_message += message.decode(self.encoding_format)
                 
-                if msg_length:
-                    msg_length = int(msg_length)
-                    msg = self.client.recv(msg_length).decode(self.encoding_format)  # Blocking line
+                # If it is a new message calculate message length
+                if new_message == True:
+                    try:
+                        message_length = int(message[:self.header_size])
+                        new_message = False
+                    except:
+                        logging.error(f"Client invalid header received: {full_message[:self.header_size]}")
+                        
+                        new_message = True
+                        full_message = ""
+                        
+                        continue
+                
+                # If the client has received the full message
+                if len(full_message) - self.header_size == message_length:
+                    logging.info(f"Client received message: {full_message[self.header_size:]}")
                     
-                    if msg == DISCONNECT_MESSAGE:
-                        logging.info("Server requested disconnection")
-                        self.disconnect()
-                        break
+                    new_message = True
+                    full_message = ""
                     
-                    logging.info(f"Received: {msg}")
-            except socket.timeout:
-                logging.warning("Connection timed out")
-                
-                self.connected = False
-                self.attempt_reconnect()
-            except socket.error as e:
-                logging.error(f"Error receiving message: {e}")
-                
-                self.connected = False
-                self.attempt_reconnect()
+            # The client has disconnected
+            except ConnectionResetError:
+                logging.info("Client disconnect")
+                break
+            except Exception as e:
+                logging.error(f"Client error when receiving message: {e}")
+                break
+    
+    
+    # Checks if the client is still connected 
+    def is_connected(self):
+        try:
+            self.client.send(b"")
+            return True
+        except:
+            return False
