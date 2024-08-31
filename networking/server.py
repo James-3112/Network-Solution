@@ -2,13 +2,16 @@ import socket
 import threading
 import logging
 
+from multipledispatch import dispatch
+
+
 class Server:
     is_running = False
     server_thread = None
     clients = {}
     
     
-    def __init__(self, port, header_size=64, buffer_size=16, encoding_format="utf-8", max_clients=0):
+    def __init__(self, port, header_size=10, buffer_size=16, encoding_format="utf-8", max_clients=10):
         self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server.bind((socket.gethostbyname(socket.gethostname()), port))
         
@@ -29,7 +32,7 @@ class Server:
         logging.info("Server started")
         
         # Starts the server listening for clients
-        self.server.listen(self.max_clients)
+        self.server.listen()
         
         # While the server is running accept connections
         while self.is_running == True:
@@ -48,8 +51,10 @@ class Server:
                 }
                 
                 logging.info(f"{address} connected to server")
+            except OSError:
+                logging.info("Server stoped")
             except Exception as e:
-                logging.error(f"Error client connecting: {e}")
+                logging.error(f"Server error when accepting connection: {e}")
     
     
     # Stops the server
@@ -57,47 +62,51 @@ class Server:
         if self.is_running == True:
             try:
                 self.is_running = False
-                self.server_thread.join()
-                
+                        
                 for client in self.clients:
-                    client["thread"].join()
-                    client["connection"].shutdown(socket.SHUT_RDWR)
-                    client["connection"].close()
-                    
-                self.server.shutdown(socket.SHUT_RDWR)
-                self.server.close()
+                    self.disconnect(self.clients[client])
                 
-                logging.info("Server stoped")
-            except Exception as e:
+                self.server.close()
+                self.server_thread.join()
+            except socket.error as e:
                 logging.error(f"Error stoping server: {e}")
         else:
             logging.warning("Server is not running")
     
-    
+
     # Disconnecting clients
-    def _disconnect_client(self, client):
-        try:
-            client["thread"].join()
-            client["connection"].shutdown(socket.SHUT_RDWR)
-            client["connection"].close()
-        except Exception as e:
-            logging.error(f"Error disconnecting client: {e}")
-    
-    def disconnect_client(self, address):
-        self._disconnect_client(self.clients[address])
+    @dispatch(dict)
+    def disconnect(self, client):
+        if self.is_running == True:
+            try:
+                self.clients.pop(client["connection"].getpeername())
+                client["connection"].close()
+                client["thread"].join()
+            except socket.error as e:
+                logging.error(f"Error disconnecting client {client['connection'].getpeername()}: {e}")
+        else:
+            logging.warning("Server is not running")
+
+    @dispatch(tuple)
+    def disconnect(self, address):
+        self.disconnect(self.clients[address])
     
     
     # Sending messages
+    @dispatch(socket.socket, str)
     def send(self, connection, message):
         if self.is_running == True:
             try:
-                message = f"{len(message):<{self.header_size}}" + message
-                connection.send(bytes(message, self.encoding_format))
-            except Exception as e:
+                message_header = f"{len(message):<{self.header_size}}" + message
+                connection.send(bytes(message_header, self.encoding_format))
+                
+                logging.info(f"Server sent message: {message}")
+            except socket.error as e:
                 logging.error(f"Error sending message: {e}")
         else:
             logging.warning("Server is not running")
     
+    @dispatch(tuple, str)
     def send(self, address, message):
         self.send(self.clients[address]["connection"], message)
     
@@ -108,8 +117,8 @@ class Server:
         new_message = True
         
         # While server is running receive messages
-        while self.is_running == True:
-            try:
+        try:
+            while self.is_running == True:
                 # Add the received message to the full message
                 message = connection.recv(self.buffer_size)
                 full_message += message.decode(self.encoding_format)
@@ -120,10 +129,12 @@ class Server:
                     new_message = False
                 
                 # If the server has received the full message
-                if len(full_message) - self.header_size == message_length:
+                if len(full_message) - self.header_size == message_length: 
                     logging.info(f"Server received message from {address}: {full_message[self.header_size:]}")
                     
                     new_message = True
                     full_message = ""
-            except Exception as e:
-                logging.error(f"Error receive message: {e}")
+        except ConnectionResetError:
+            logging.info(f"Client {address} has disconnected from the server")
+        except ConnectionAbortedError:
+            logging.info(f"Server disconnected client: {address}")
