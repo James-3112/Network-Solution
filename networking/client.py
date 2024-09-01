@@ -12,19 +12,22 @@ class Client:
         self.header_size = header_size
         self.buffer_size = buffer_size
         self.encoding_format = encoding_format
+        
+        self.logger = logging.getLogger(__name__)
+        self.logger.set_class_name(self.__class__.__name__)
 
 
     # Connect client to the server
     def connect(self, ip, port):
         try:
             self.client.connect((ip, port))
-            logging.info(f"Client connected to {(ip, port)}")
+            self.logger.info(f"Connected to {(ip, port)}")
             
             # Start receiving thread
             self.receiving_thread = threading.Thread(target=self.receive_messages)
             self.receiving_thread.start()
         except Exception as e:
-            logging.error(f"Error connecting to ({ip}, {port}): {e}")
+            self.logger.error(f"Error connecting to ({ip}, {port}): {e}")
 
     
     # Disconnect client from the server
@@ -34,9 +37,9 @@ class Client:
                 self.client.close()
                 self.receiving_thread.join() 
             except Exception as e:
-                logging.error(f"Error disconnecting client: {e}")
+                self.logger.error(f"Error disconnecting: {e}")
         else:
-            logging.warning("Client is not connected")
+            self.logger.warning("Attempted to disconnect when not connected")
 
 
     # Send message to server
@@ -47,11 +50,11 @@ class Client:
                 message_header = f"{len(message):<{self.header_size}}" + message
                 self.client.send(bytes(message_header, self.encoding_format))
                 
-                logging.info(f"Client sent message: {message}")
+                self.logger.info(f"Sent message: {message}")
             except Exception as e:
-                logging.error(f"Error sending message: {e}")
+                self.logger.error(f"Error sending message: {e}")
         else:
-            logging.warning("Client is not connected")
+            self.logger.warning("Attempted to send a message when not connected")
     
     
     # Receiving messages from the server
@@ -72,7 +75,7 @@ class Client:
                         message_length = int(message[:self.header_size])
                         new_message = False
                     except:
-                        logging.error(f"Client invalid header received: {full_message[:self.header_size]}")
+                        self.logger.error(f"Invalid header received: {full_message[:self.header_size]}")
                         
                         new_message = True
                         full_message = ""
@@ -81,17 +84,17 @@ class Client:
                 
                 # If the client has received the full message
                 if len(full_message) - self.header_size == message_length:
-                    logging.info(f"Client received message: {full_message[self.header_size:]}")
+                    self.logger.info(f"Received message: {full_message[self.header_size:]}")
                     
                     new_message = True
                     full_message = ""
                     
             # The client has disconnected
             except ConnectionResetError:
-                logging.info("Client disconnect")
+                self.logger.info("Disconnect")
                 break
             except Exception as e:
-                logging.error(f"Client error when receiving message: {e}")
+                self.logger.error(f"Error when receiving message: {e}")
                 break
     
     

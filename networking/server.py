@@ -19,6 +19,9 @@ class Server:
         self.buffer_size = buffer_size
         self.encoding_format = encoding_format
         self.max_clients = max_clients
+        
+        self.logger = logging.getLogger(__name__)
+        self.logger.set_class_name(self.__class__.__name__)
     
     
     # Starts the server thread
@@ -29,7 +32,7 @@ class Server:
     # Starts listening for clients
     def start_server_thread(self):
         self.is_running = True
-        logging.info("Server started")
+        self.logger.info("Started")
         
         # Starts the server listening for clients
         self.server.listen()
@@ -50,11 +53,11 @@ class Server:
                     "thread": thread
                 }
                 
-                logging.info(f"{address} connected to server")
+                self.logger.info(f"{address} connected")
             except OSError:
-                logging.info("Server stoped")
+                self.logger.info("Stoped")
             except Exception as e:
-                logging.error(f"Server error when accepting connection: {e}")
+                self.logger.error(f"Error when accepting connection: {e}")
     
     
     # Stops the server
@@ -69,9 +72,9 @@ class Server:
                 self.server.close()
                 self.server_thread.join()
             except socket.error as e:
-                logging.error(f"Error stoping server: {e}")
+                self.logger.error(f"Error stoping: {e}")
         else:
-            logging.warning("Server is not running")
+            self.logger.warning("Attempted to stop when not running")
     
 
     # Disconnecting clients
@@ -83,9 +86,9 @@ class Server:
                 client["connection"].close()
                 client["thread"].join()
             except socket.error as e:
-                logging.error(f"Error disconnecting client {client['connection'].getpeername()}: {e}")
+                self.logger.error(f"Error disconnecting {client['connection'].getpeername()}: {e}")
         else:
-            logging.warning("Server is not running")
+            self.logger.warning("Attempted to disconnect when not running")
 
     @dispatch(tuple)
     def disconnect(self, address):
@@ -100,11 +103,11 @@ class Server:
                 message_header = f"{len(message):<{self.header_size}}" + message
                 connection.send(bytes(message_header, self.encoding_format))
                 
-                logging.info(f"Server sent message: {message}")
+                self.logger.info(f"Sent message: {message}")
             except socket.error as e:
-                logging.error(f"Error sending message: {e}")
+                self.logger.error(f"Error sending message: {e}")
         else:
-            logging.warning("Server is not running")
+            self.logger.warning("Attempted to send a message when not running")
     
     @dispatch(tuple, str)
     def send(self, address, message):
@@ -130,11 +133,11 @@ class Server:
                 
                 # If the server has received the full message
                 if len(full_message) - self.header_size == message_length: 
-                    logging.info(f"Server received message from {address}: {full_message[self.header_size:]}")
+                    self.logger.info(f"Received message from {address}: {full_message[self.header_size:]}")
                     
                     new_message = True
                     full_message = ""
         except ConnectionResetError:
-            logging.info(f"Client {address} has disconnected from the server")
+            self.logger.info(f"{address} has disconnected from the server")
         except ConnectionAbortedError:
-            logging.info(f"Server disconnected client: {address}")
+            self.logger.info(f"Disconnected: {address}")
